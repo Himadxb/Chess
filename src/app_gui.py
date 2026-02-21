@@ -463,8 +463,8 @@ class ChessCoachApp(QMainWindow):
     # Bot Settings
     # ------------------------------------------------------------------
 
-    def _on_skill_changed(self, level: int) -> None:
-        self.engine.set_skill_level(level)
+    def _on_skill_changed(self, elo: int) -> None:
+        self.engine.set_elo(elo)
 
 
 # --------------------------------------------------------------------------

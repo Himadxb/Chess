@@ -45,15 +45,20 @@ class MoveEvaluation:
 class EngineManager:
     """Manages the Stockfish process and board state."""
 
-    DEFAULT_TIME_LIMIT = 0.05  # seconds per engine move (50 ms — fast & responsive)
-    EVAL_TIME_LIMIT   = 0.05  # seconds for real-time eval bar updates
-    ANALYSIS_DEPTH    = 12    # depth for post-game analysis (good balance of speed vs quality)
+    DEFAULT_TIME_LIMIT = 0.05  # seconds per engine move
+    EVAL_TIME_LIMIT   = 0.05  # seconds for real-time eval bar
+    ANALYSIS_DEPTH    = 12    # depth for post-game analysis
 
-    def __init__(self, stockfish_path: str, skill_level: int = 5):
+    # ELO range supported by Stockfish UCI_Elo (clamp to this)
+    ELO_MIN = 1320
+    ELO_MAX = 3190
+    ELO_DEFAULT = 1200  # typical casual/average player
+
+    def __init__(self, stockfish_path: str, elo: int = 1200):
         """
         Args:
             stockfish_path: Absolute path to the Stockfish binary.
-            skill_level: Stockfish Skill Level (1-20, controls playing strength).
+            elo: Target bot ELO (1200 = average casual player, 2800 = grandmaster).
         """
         if not os.path.isfile(stockfish_path):
             raise FileNotFoundError(
@@ -63,7 +68,7 @@ class EngineManager:
             )
 
         self.stockfish_path = stockfish_path
-        self.skill_level = min(max(skill_level, 1), 20)
+        self.elo = max(200, min(elo, self.ELO_MAX))
         self.board = chess.Board()
         self._engine: Optional[chess.engine.SimpleEngine] = None
 
@@ -74,7 +79,7 @@ class EngineManager:
     def start(self) -> None:
         """Initialise the Stockfish process."""
         self._engine = chess.engine.SimpleEngine.popen_uci(self.stockfish_path)
-        self._configure_skill()
+        self._configure_elo()
 
     def stop(self) -> None:
         """Terminate the Stockfish process cleanly."""
@@ -211,11 +216,20 @@ class EngineManager:
     # Configuration
     # ------------------------------------------------------------------
 
-    def set_skill_level(self, level: int) -> None:
-        """Adjust bot skill in real time (1-20)."""
-        self.skill_level = min(max(level, 1), 20)
+    def set_elo(self, elo: int) -> None:
+        """Adjust bot ELO in real time."""
+        self.elo = max(200, min(elo, self.ELO_MAX))
         if self._engine:
-            self._configure_skill()
+            self._configure_elo()
 
-    def _configure_skill(self) -> None:
-        self._engine.configure({"Skill Level": self.skill_level})
+    # Keep backward compat alias
+    def set_skill_level(self, level: int) -> None:
+        pass  # deprecated — use set_elo()
+
+    def _configure_elo(self) -> None:
+        # Stockfish UCI_Elo requires UCI_LimitStrength = true
+        active_elo = max(self.ELO_MIN, self.elo)
+        self._engine.configure({
+            'UCI_LimitStrength': True,
+            'UCI_Elo': active_elo,
+        })

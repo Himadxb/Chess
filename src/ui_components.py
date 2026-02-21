@@ -162,7 +162,12 @@ class MoveHistoryWidget(QGroupBox):
 # --------------------------------------------------------------------------
 
 class BotSettingsWidget(QGroupBox):
-    """Skill level slider and difficulty configuration."""
+    """ELO-based bot strength slider."""
+
+    # (min, max, default) — Stockfish UCI_Elo clamps to 1320 internally
+    ELO_MIN     = 400
+    ELO_MAX     = 2800
+    ELO_DEFAULT = 1200   # average casual player
 
     def __init__(self, parent=None):
         super().__init__("Bot Settings", parent)
@@ -172,13 +177,14 @@ class BotSettingsWidget(QGroupBox):
         layout.setContentsMargins(12, 16, 12, 12)
         layout.setSpacing(8)
 
-        self._label = QLabel("Skill Level: 5")
-        self._label.setStyleSheet(f"color: {PALETTE['accent_gold']}; font-size: 13px;")
+        self._label = QLabel(f"Bot ELO: {self.ELO_DEFAULT}  [Intermediate]")
+        self._label.setStyleSheet(f"color: {PALETTE['accent_gold']}; font-size: 13px; font-weight: bold;")
         layout.addWidget(self._label)
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
-        self.slider.setRange(1, 20)
-        self.slider.setValue(5)
+        self.slider.setRange(self.ELO_MIN, self.ELO_MAX)
+        self.slider.setValue(self.ELO_DEFAULT)
+        self.slider.setTickInterval(200)
         self.slider.setStyleSheet(f"""
             QSlider::groove:horizontal {{
                 background: {PALETTE['bg_surface']}; height: 6px; border-radius: 3px;
@@ -194,22 +200,37 @@ class BotSettingsWidget(QGroupBox):
         self.slider.valueChanged.connect(self._on_value_changed)
         layout.addWidget(self.slider)
 
-        self._difficulty_labels = QLabel("← Beginner      Master →")
-        self._difficulty_labels.setStyleSheet(f"color: {PALETTE['text_secondary']}; font-size: 10px;")
-        layout.addWidget(self._difficulty_labels)
+        row = QHBoxLayout()
+        for txt in ["400", "1000", "1500", "2000", "2800"]:
+            lbl = QLabel(txt)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet(f"color: {PALETTE['text_secondary']}; font-size: 9px;")
+            row.addWidget(lbl)
+        layout.addLayout(row)
 
     def _on_value_changed(self, value: int) -> None:
-        labels = {
-            range(1, 4): "Beginner", range(4, 8): "Intermediate",
-            range(8, 13): "Advanced", range(13, 18): "Expert",
-            range(18, 21): "Master",
-        }
-        label = next((v for k, v in labels.items() if value in k), "")
-        self._label.setText(f"Skill Level: {value}  [{label}]")
+        if value < 800:
+            tier = "Beginner"
+        elif value < 1200:
+            tier = "Casual"
+        elif value < 1600:
+            tier = "Intermediate"
+        elif value < 2000:
+            tier = "Club Player"
+        elif value < 2400:
+            tier = "Expert"
+        else:
+            tier = "Master / GM"
+        self._label.setText(f"Bot ELO: {value}  [{tier}]")
+
+    @property
+    def elo(self) -> int:
+        return self.slider.value()
 
     @property
     def skill_level(self) -> int:
-        return self.slider.value()
+        """Backward compat — maps rough ELO to 1-20."""
+        return max(1, min(20, (self.elo - 400) // 120))
 
 
 # --------------------------------------------------------------------------

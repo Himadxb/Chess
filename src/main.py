@@ -28,15 +28,15 @@ def main():
         print(f"   Expected path: {env_path}\n")
 
     stockfish_path = os.getenv("STOCKFISH_PATH", "stockfish/stockfish.exe")
-    skill_level    = int(os.getenv("BOT_SKILL_LEVEL", "5"))
+    bot_elo        = int(os.getenv("BOT_ELO", "1200"))
 
     print("♟️  ChessC+ — AI Chess Coach")
     print(f"   Stockfish path : {stockfish_path}")
-    print(f"   Bot skill level: {skill_level}")
+    print(f"   Bot ELO        : {bot_elo}")
     print(f"   LLM backend    : {os.getenv('LLM_BACKEND', 'ollama')}\n")
 
     try:
-        engine = EngineManager(stockfish_path=stockfish_path, skill_level=skill_level)
+        engine = EngineManager(stockfish_path=stockfish_path, elo=bot_elo)
         engine.start()
     except FileNotFoundError as e:
         print(f"\n❌  {e}")

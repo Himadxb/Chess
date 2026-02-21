@@ -94,9 +94,39 @@ class OllamaBackend:
             response.raise_for_status()
             return response.json().get("response", "").strip()
         except requests.exceptions.ConnectionError:
+            self._try_start_ollama()
             return None  # signal: use rule-based fallback
         except Exception as e:
             return None  # signal: use rule-based fallback
+
+
+    def _try_start_ollama(self) -> None:
+        """
+        Attempt to pull the model and start Ollama in the background.
+        Only runs once per session.
+        """
+        import threading, subprocess
+        if getattr(self, "_ollama_start_attempted", False):
+            return
+        self._ollama_start_attempted = True
+
+        def _run():
+            try:
+                # Pull the model (no-op if already present)
+                subprocess.run(
+                    ["ollama", "pull", self.model],
+                    timeout=300, capture_output=True
+                )
+                # Start the ollama server in background
+                subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except (FileNotFoundError, Exception):
+                pass  # ollama not installed — ignore silently
+
+        threading.Thread(target=_run, daemon=True).start()
 
 
 class OpenAIBackend:
@@ -152,7 +182,7 @@ class RuleBasedFallback:
             phase = Analyzer.infer_game_phase(m.fen_before)
             lines += [
                 f"Most critical moment [{phase}]: {m.move_san} ({m.classification})",
-                f"  Centipawn loss: {abs(m.score_delta):.0f} cp",
+                f"  Centipawn loss: {min(abs(m.score_delta), 999):.0f}{'+ (decisive)' if abs(m.score_delta) > 999 else ''} cp",
                 f"  Engine suggested: {m.best_move_san} instead.",
                 f"",
             ]

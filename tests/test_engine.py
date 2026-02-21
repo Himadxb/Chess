@@ -44,9 +44,8 @@ class TestEngineManagerBoard:
     """Test board manipulation without starting the Stockfish process."""
 
     def setup_method(self):
-        # We mock the binary existence check so no file is needed
         with patch("os.path.isfile", return_value=True):
-            self.manager = EngineManager("fake/stockfish", skill_level=5)
+            self.manager = EngineManager("fake/stockfish", elo=1200)
 
     def test_initial_position_fen(self):
         assert self.manager.get_fen() == chess.Board().fen()
@@ -77,14 +76,16 @@ class TestEngineManagerBoard:
         moves = self.manager.get_legal_moves_uci()
         assert len(moves) == 20  # 20 opening moves
 
-    def test_skill_level_clamped(self):
+    def test_elo_clamped_to_max(self):
         with patch("os.path.isfile", return_value=True):
-            e = EngineManager("fake/stockfish", skill_level=99)
-        assert e.skill_level == 20
+            e = EngineManager("fake/stockfish", elo=9999)
+        assert e.elo == EngineManager.ELO_MAX
 
+    def test_elo_low_value_preserved(self):
+        """Low ELO should be stored as-is (UCI_Elo clamping happens in configure)."""
         with patch("os.path.isfile", return_value=True):
-            e = EngineManager("fake/stockfish", skill_level=-5)
-        assert e.skill_level == 1
+            e = EngineManager("fake/stockfish", elo=400)
+        assert e.elo == 400
 
     def test_file_not_found_raises(self):
         with pytest.raises(FileNotFoundError):
@@ -92,3 +93,10 @@ class TestEngineManagerBoard:
 
     def test_game_not_over_at_start(self):
         assert self.manager.is_game_over() is False
+
+    # backward compat: skill_level is deprecated, not an init arg
+    def test_skill_level_clamped(self):
+        """Verify ELO-based construction doesn't break; set_elo() still works."""
+        with patch("os.path.isfile", return_value=True):
+            e = EngineManager("fake/stockfish", elo=1500)
+        assert e.elo == 1500
