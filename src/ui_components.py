@@ -305,3 +305,8 @@ class CoachingPanel(QGroupBox):
             self._text.setPlainText("")
         else:
             self._status.setText("Post-game analysis complete:")
+
+    def set_live_tip(self, tip: str) -> None:
+        """Show a live in-game coaching tip (replaces feedback area during play)."""
+        self._status.setText("💡 Live Coach:")
+        self._text.setPlainText(tip)

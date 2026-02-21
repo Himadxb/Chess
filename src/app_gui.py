@@ -149,39 +149,18 @@ class ChessBoardWidget(QWidget):
                     if piece.color == self.board.turn:
                         painter.fillRect(rect, CHECK_COLOR)
 
-                # ── Draw piece ──────────────────────────────────────────
-                # Strategy: draw a thick border ring using 12 radial offsets
-                # then fill on top. No fringing because the SQUARE colors
-                # already contrast with both piece colors.
+                # ── Draw piece (solid fill, no border) ─────────────────
+                # Board square colors provide contrast by design.
+                # White on green = visible. Black on cream = visible.
                 if piece:
                     sym = UNICODE_PIECES.get(piece.symbol(), "?")
-                    # Slightly smaller than square so edges don't clip
-                    fs = max(10, int(sq_size * 0.60))
+                    fs = max(10, int(sq_size * 0.62))
                     font = QFont("Segoe UI Symbol", fs)
                     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
                     painter.setFont(font)
-
-                    if piece.color == chess.WHITE:
-                        fill_color   = WHITE_PIECE_FILL
-                        border_color = WHITE_PIECE_BORDER
-                    else:
-                        fill_color   = BLACK_PIECE_FILL
-                        border_color = BLACK_PIECE_BORDER
-
-                    # Draw border: 12 evenly-spaced offsets at radius 2.5px
-                    painter.setPen(border_color)
-                    import math
-                    r = 2.5
-                    for i in range(12):
-                        angle = i * math.pi / 6
-                        ox = int(round(r * math.cos(angle)))
-                        oy = int(round(r * math.sin(angle)))
-                        painter.drawText(
-                            QRect(rect.x()+ox, rect.y()+oy, rect.width(), rect.height()),
-                            Qt.AlignmentFlag.AlignCenter, sym)
-
-                    # Draw fill on top
-                    painter.setPen(fill_color)
+                    # Pure solid fills — no border coloring at all
+                    painter.setPen(WHITE_PIECE_FILL if piece.color == chess.WHITE
+                                   else BLACK_PIECE_FILL)
                     painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, sym)
 
         # Rank/file labels — colour adapts to square so always readable
@@ -256,8 +235,9 @@ class ChessBoardWidget(QWidget):
 class ChessCoachApp(QMainWindow):
     """Main application window."""
 
-    # Signal for safe cross-thread eval bar updates
-    eval_updated = pyqtSignal(float)
+    # Signals for thread-safe UI updates
+    eval_updated  = pyqtSignal(float)
+    coach_tip_ready = pyqtSignal(str)   # live in-game coaching tip
     def __init__(self, engine: EngineManager, coach: ChessCoach):
         super().__init__()
         self.engine = engine
@@ -269,7 +249,8 @@ class ChessCoachApp(QMainWindow):
         self.setWindowTitle("♟️ ChessC+ — AI Chess Coach")
         self.setMinimumSize(960, 640)
         self._init_ui()
-        self.eval_updated.connect(self._apply_eval)   # wire signal → slot (thread-safe)
+        self.eval_updated.connect(self._apply_eval)
+        self.coach_tip_ready.connect(self._show_live_tip)
         self._apply_global_style()
         self._start_new_game()
 
@@ -395,6 +376,7 @@ class ChessCoachApp(QMainWindow):
 
         self.board_widget.set_board(self.engine.board)
         self._update_eval()
+        self._emit_live_tip()
 
         if self.game_loop.is_over:
             self._on_game_over()
@@ -403,9 +385,10 @@ class ChessCoachApp(QMainWindow):
         self.status_bar.showMessage("Bot is thinking...")
         QApplication.processEvents()
 
-        # Bot move — 50ms delay so the board paint event completes first
+        # Bot move — 2-2.5s human-feeling delay
+        import random as _random
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(50, self._do_bot_move)
+        QTimer.singleShot(_random.randint(2000, 2500), self._do_bot_move)
 
     def _do_bot_move(self) -> None:
         san = self.game_loop.apply_bot_move()
@@ -427,6 +410,36 @@ class ChessCoachApp(QMainWindow):
         self.status_bar.showMessage(f"Game Over: {outcome}")
         QMessageBox.information(self, "Game Over", f"Result: {outcome}")
         self._run_post_game_analysis()
+
+    # ── Live in-game coaching ────────────────────────────────────────────
+
+    def _emit_live_tip(self) -> None:
+        """Generate a quick coaching tip for the current position."""
+        import threading
+        move_count = len(self.game_loop.move_history)
+
+        def _do():
+            try:
+                tip = self._build_live_tip(move_count)
+                self.coach_tip_ready.emit(tip)
+            except Exception:
+                pass
+
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _build_live_tip(self, move_count: int) -> str:
+        """Rule-based live tip — no LLM needed, instant."""
+        from .coach_llm import LiveCoach
+        board = self.engine.board.copy()
+        history = self.game_loop.move_history
+        last = history[-1] if history else None
+        return LiveCoach.tip(board, move_count, last)
+
+    def _show_live_tip(self, tip: str) -> None:
+        """Display the live tip in the coaching panel."""
+        self.coaching_panel.set_live_tip(tip)
+
+    # ── Eval bar ─────────────────────────────────────────────────────────
 
     def _update_eval(self) -> None:
         """Kick off a background thread for eval — never blocks the UI."""

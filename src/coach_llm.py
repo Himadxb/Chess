@@ -197,8 +197,9 @@ class RuleBasedFallback:
         else:
             lines.append("📌 Keep practising — consistency comes with time. Review the critical moments above.")
 
+        # Ollama auto-starts in background — no nag message needed
         lines.append("")
-        lines.append("💡 To enable AI coaching, run: ollama pull llama3 && ollama serve")
+        lines.append("💡 AI coaching via Ollama will activate automatically on the next game.")
         return "\n".join(lines)
 
     @staticmethod
@@ -209,6 +210,88 @@ class RuleBasedFallback:
             f"(lost ~{loss:.0f} cp). "
             f"Engine preferred: {move.best_move_san}."
         )
+
+
+
+# --------------------------------------------------------------------------
+# LiveCoach — instant rule-based in-game tips (no LLM, no latency)
+# --------------------------------------------------------------------------
+
+class LiveCoach:
+    """
+    Generates instant coaching tips during the game based on:
+    - Move number (opening principles)
+    - Board state (material, pawn structure)
+    - Last move quality
+    No engine calls — purely deterministic and instant.
+    """
+
+    OPENING_TIPS = [
+        "Opening principle: Control the centre with pawns to e4 or d4.",
+        "Opening principle: Develop your knights and bishops early.",
+        "Opening principle: Castle early to keep your king safe.",
+        "Opening principle: Don't move the same piece twice in the opening.",
+        "Opening principle: Connect your rooks by castling and developing all pieces.",
+        "Opening principle: Avoid moving your queen too early — it can be attacked.",
+        "Opening principle: Each move should develop a piece or improve your position.",
+        "Tip: Look for forks — moves that attack two pieces at once.",
+    ]
+
+    MIDDLEGAME_TIPS = [
+        "Middlegame tip: Before moving, ask — can my opponent capture anything for free?",
+        "Middlegame tip: Identify your opponent's most dangerous piece and neutralise it.",
+        "Middlegame tip: Look for checks, captures, and threats before making a quiet move.",
+        "Middlegame tip: Rooks belong on open files — move pawns to open lines for them.",
+        "Middlegame tip: Knights are strongest in the centre; bishops on open diagonals.",
+        "Middlegame tip: Double-check — will this move leave a piece undefended?",
+        "Middlegame tip: Look for outpost squares — squares where your knight can't be chased.",
+        "Middlegame tip: Coordinate your pieces — two pieces working together beat one powerful one.",
+    ]
+
+    ENDGAME_TIPS = [
+        "Endgame tip: Activate your king — it's a powerful piece in the endgame.",
+        "Endgame tip: Push passed pawns toward promotion.",
+        "Endgame tip: The rook is most powerful behind a passed pawn.",
+        "Endgame tip: In king + pawn endgames, opposition is key.",
+        "Endgame tip: Eliminate your opponent's passed pawns early.",
+    ]
+
+    @classmethod
+    def tip(cls, board, move_count: int, last_move=None) -> str:
+        import chess
+        piece_count = len(board.piece_map())
+
+        if piece_count >= 26 or move_count <= 14:
+            phase = "Opening"
+            tips = cls.OPENING_TIPS
+        elif piece_count <= 12:
+            phase = "Endgame"
+            tips = cls.ENDGAME_TIPS
+        else:
+            phase = "Middlegame"
+            tips = cls.MIDDLEGAME_TIPS
+
+        import hashlib
+        tip_idx = int(hashlib.md5(str(move_count).encode()).hexdigest(), 16) % len(tips)
+        tip = tips[tip_idx]
+
+        # Add threat detection bonus
+        extra = ""
+        if board.is_check():
+            extra = "\n⚠️ Your king is in check! Find a safe square."
+        elif board.is_attacked_by(board.turn, board.king(not board.turn)):
+            # We're giving check
+            extra = "\n♟️ You're giving check — look for follow-up tactics."
+        elif last_move and last_move.played_by == "white":
+            # Check if any white piece is hanging
+            for sq, piece in board.piece_map().items():
+                if piece.color == chess.WHITE:
+                    if board.is_attacked_by(chess.BLACK, sq) and not board.is_attacked_by(chess.WHITE, sq):
+                        pname = chess.piece_name(piece.piece_type).capitalize()
+                        extra = f"\n⚠️ Danger: your {pname} on {chess.square_name(sq)} may be undefended!"
+                        break
+
+        return f"[{phase}] {tip}{extra}"
 
 
 # --------------------------------------------------------------------------
