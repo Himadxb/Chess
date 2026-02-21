@@ -29,14 +29,14 @@ from .ui_components import (
 )
 
 # --------------------------------------------------------------------------
-# Colours for the board
+# Colours for the board — clean black & white minimalistic
 # --------------------------------------------------------------------------
-LIGHT_SQUARE = QColor("#f0d9b5")
-DARK_SQUARE  = QColor("#b58863")
-HIGHLIGHT_SRC = QColor(20, 85, 30, 160)
-HIGHLIGHT_LEGAL = QColor(20, 85, 30, 80)
-LAST_MOVE = QColor(155, 199, 0, 120)
-CHECK_COLOR = QColor(220, 50, 50, 180)
+LIGHT_SQUARE = QColor("#f5f5f5")   # near-white
+DARK_SQUARE  = QColor("#202020")   # near-black
+HIGHLIGHT_SRC   = QColor(80, 180, 240, 160)   # blue tint for selected piece
+HIGHLIGHT_LEGAL = QColor(80, 180, 240, 70)    # blue tint for legal dots
+LAST_MOVE   = QColor(100, 220, 100, 100)       # green tint for last move
+CHECK_COLOR = QColor(220, 50, 50, 200)         # red for king in check
 
 # Unicode chess pieces (fallback if no image assets)
 UNICODE_PIECES = {
@@ -146,27 +146,34 @@ class ChessBoardWidget(QWidget):
                     sym = UNICODE_PIECES.get(piece.symbol(), "?")
                     font = QFont("Segoe UI Symbol", sq_size // 2)
                     painter.setFont(font)
-                    color = QColor("#fcfcfc") if piece.color == chess.WHITE else QColor("#1c1c1c")
+                    # White pieces: black text on light squares, white text on dark squares
+                    if piece.color == chess.WHITE:
+                        color = QColor("#f5f5f5") if (file + rank) % 2 == 1 else QColor("#1a1a1a")
+                    else:
+                        color = QColor("#1a1a1a") if (file + rank) % 2 == 1 else QColor("#f5f5f5")
+                    # Add subtle drop shadow for readability
+                    painter.setPen(QColor(0, 0, 0, 60))
+                    shadow_rect = QRect(rect.x() + 2, rect.y() + 2, rect.width(), rect.height())
+                    painter.drawText(shadow_rect, Qt.AlignmentFlag.AlignCenter, sym)
                     painter.setPen(color)
                     painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, sym)
 
         # Draw rank/file labels
-        label_font = QFont("Arial", 10, QFont.Weight.Bold)
+        label_font = QFont("Arial", 9, QFont.Weight.Bold)
         painter.setFont(label_font)
         files = "abcdefgh"
         ranks = "12345678"
         for i in range(8):
-            # File labels (bottom)
             f_idx = i if not self._flipped else 7 - i
-            painter.setPen(DARK_SQUARE if i % 2 == 0 else LIGHT_SQUARE)
+            # File label colour contrasts with the square in the bottom row
+            label_col = QColor("#888") if (i + 0) % 2 == 0 else QColor("#888")
+            painter.setPen(QColor("#888888"))
             painter.drawText(
                 QRect(i * sq_size, 7 * sq_size + sq_size - 14, sq_size, 14),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
                 files[f_idx]
             )
-            # Rank labels (left side)
             r_idx = 7 - i if not self._flipped else i
-            painter.setPen(LIGHT_SQUARE if i % 2 == 0 else DARK_SQUARE)
             painter.drawText(
                 QRect(2, i * sq_size + 2, 16, 16),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
@@ -220,16 +227,20 @@ class ChessBoardWidget(QWidget):
 class ChessCoachApp(QMainWindow):
     """Main application window."""
 
+    # Signal for safe cross-thread eval bar updates
+    eval_updated = pyqtSignal(float)
     def __init__(self, engine: EngineManager, coach: ChessCoach):
         super().__init__()
         self.engine = engine
         self.coach = coach
         self.game_loop = GameLoop(engine, player_color=chess.WHITE)
         self._analysis_thread: QThread | None = None
+        self._pending_eval: float | None = None
 
         self.setWindowTitle("♟️ ChessC+ — AI Chess Coach")
         self.setMinimumSize(960, 640)
         self._init_ui()
+        self.eval_updated.connect(self._apply_eval)   # wire signal → slot (thread-safe)
         self._apply_global_style()
         self._start_new_game()
 
@@ -363,9 +374,9 @@ class ChessCoachApp(QMainWindow):
         self.status_bar.showMessage("Bot is thinking...")
         QApplication.processEvents()
 
-        # Bot move (on a timer to avoid blocking paint event)
+        # Bot move — 50ms delay so the board paint event completes first
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(100, self._do_bot_move)
+        QTimer.singleShot(50, self._do_bot_move)
 
     def _do_bot_move(self) -> None:
         san = self.game_loop.apply_bot_move()
@@ -389,13 +400,21 @@ class ChessCoachApp(QMainWindow):
         self._run_post_game_analysis()
 
     def _update_eval(self) -> None:
-        try:
-            cp = self.engine.evaluate_position()
-            self.eval_bar.set_eval(cp)
-            cp_str = f"+{cp:.0f}" if cp > 0 else f"{cp:.0f}"
-            self.status_bar.showMessage(f"Evaluation: {cp_str} cp")
-        except Exception:
-            pass
+        """Kick off a background thread for eval — never blocks the UI."""
+        import threading
+        def _do_eval():
+            try:
+                cp = self.engine.evaluate_position()  # fast ~50ms
+                self.eval_updated.emit(cp)            # safe cross-thread signal
+            except Exception:
+                pass
+        threading.Thread(target=_do_eval, daemon=True).start()
+
+    def _apply_eval(self, cp: float) -> None:
+        """Called on the main thread via eval_updated signal."""
+        self.eval_bar.set_eval(cp)
+        cp_str = f"+{cp:.0f}" if cp > 0 else f"{cp:.0f}"
+        self.status_bar.showMessage(f"Evaluation: {cp_str} cp  |  Your turn — you play White")
 
     # ------------------------------------------------------------------
     # Post-Game Analysis

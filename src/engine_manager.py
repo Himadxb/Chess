@@ -45,8 +45,9 @@ class MoveEvaluation:
 class EngineManager:
     """Manages the Stockfish process and board state."""
 
-    DEFAULT_TIME_LIMIT = 0.1   # seconds per engine move
-    ANALYSIS_DEPTH = 18        # depth for post-game analysis
+    DEFAULT_TIME_LIMIT = 0.05  # seconds per engine move (50 ms — fast & responsive)
+    EVAL_TIME_LIMIT   = 0.05  # seconds for real-time eval bar updates
+    ANALYSIS_DEPTH    = 12    # depth for post-game analysis (good balance of speed vs quality)
 
     def __init__(self, stockfish_path: str, skill_level: int = 5):
         """
@@ -157,9 +158,26 @@ class EngineManager:
 
     def evaluate_position(self, fen: Optional[str] = None) -> float:
         """
-        Evaluate a FEN position (or current board if None).
-        Returns centipawns from White's perspective.
-        Mate scores use ±10000 as a sentinel.
+        Quick evaluation for the live eval bar (time-limited, not depth-limited).
+        Returns centipawns from White's perspective. Runs in ~50 ms.
+        """
+        if not self._engine:
+            raise RuntimeError("Engine not started. Call start() first.")
+
+        board = chess.Board(fen) if fen else self.board.copy()
+        info = self._engine.analyse(
+            board,
+            chess.engine.Limit(time=self.EVAL_TIME_LIMIT)
+        )
+        score = info["score"].white()
+        if score.is_mate():
+            mate_in = score.mate()
+            return 10000 if mate_in > 0 else -10000
+        return float(score.score())
+
+    def evaluate_position_deep(self, fen: Optional[str] = None) -> float:
+        """
+        Deep evaluation used only for post-game analysis (depth-limited).
         """
         if not self._engine:
             raise RuntimeError("Engine not started. Call start() first.")

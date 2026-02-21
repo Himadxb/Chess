@@ -124,12 +124,16 @@ class Analyzer:
     # Private helpers
     # ------------------------------------------------------------------
 
+    # Per-move time budget for post-game analysis (seconds).
+    # 0.3s * ~40 moves = ~12 seconds for a full game analysis.
+    ANALYSIS_TIME_PER_MOVE = 0.3
+
     def _evaluate_fen(self, fen: str) -> float:
         """Evaluate a FEN string via Stockfish, returning centipawns (White POV)."""
         board = chess.Board(fen)
         info = self.engine._engine.analyse(
             board,
-            chess.engine.Limit(depth=self.ANALYSIS_DEPTH),
+            chess.engine.Limit(time=self.ANALYSIS_TIME_PER_MOVE),
         )
         score = info["score"].white()
         if score.is_mate():
@@ -141,7 +145,7 @@ class Analyzer:
         board = chess.Board(fen)
         result = self.engine._engine.play(
             board,
-            chess.engine.Limit(depth=self.ANALYSIS_DEPTH),
+            chess.engine.Limit(time=self.ANALYSIS_TIME_PER_MOVE),
         )
         if result.move:
             return board.san(result.move)
