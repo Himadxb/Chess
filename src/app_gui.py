@@ -29,14 +29,22 @@ from .ui_components import (
 )
 
 # --------------------------------------------------------------------------
-# Colours for the board — clean black & white minimalistic
+# Board colours — proven high-contrast scheme (cream + slate)
+# White pieces are ALWAYS readable on slate-dark squares.
+# Black pieces are ALWAYS readable on cream-light squares.
 # --------------------------------------------------------------------------
-LIGHT_SQUARE = QColor("#f5f5f5")   # near-white
-DARK_SQUARE  = QColor("#202020")   # near-black
-HIGHLIGHT_SRC   = QColor(80, 180, 240, 160)   # blue tint for selected piece
-HIGHLIGHT_LEGAL = QColor(80, 180, 240, 70)    # blue tint for legal dots
-LAST_MOVE   = QColor(100, 220, 100, 100)       # green tint for last move
-CHECK_COLOR = QColor(220, 50, 50, 200)         # red for king in check
+LIGHT_SQUARE    = QColor("#f0ead6")   # warm cream
+DARK_SQUARE     = QColor("#4a6741")   # muted slate-green (classic chess look)
+HIGHLIGHT_SRC  = QColor(255, 255,  80, 180)   # bright yellow tint (selected piece)
+HIGHLIGHT_LEGAL= QColor(255, 255,  80,  80)   # soft yellow dot (legal moves)
+LAST_MOVE       = QColor( 80, 160, 255, 110)   # blue tint (last move)
+CHECK_COLOR     = QColor(220,  50,  50, 200)   # red (king in check)
+
+# Piece fill colours — chosen to contrast with BOTH square types
+WHITE_PIECE_FILL    = QColor("#ffffff")        # pure white
+WHITE_PIECE_BORDER  = QColor("#1a1a1a")        # near-black
+BLACK_PIECE_FILL    = QColor("#1a1a1a")        # near-black
+BLACK_PIECE_BORDER  = QColor("#ffffff")        # pure white
 
 # Unicode chess pieces (fallback if no image assets)
 UNICODE_PIECES = {
@@ -141,47 +149,60 @@ class ChessBoardWidget(QWidget):
                     if piece.color == self.board.turn:
                         painter.fillRect(rect, CHECK_COLOR)
 
-                # Draw piece with high-contrast outlined rendering.
-                # White pieces: bright white fill + dark border.
-                # Black pieces: dark fill + bright white border.
-                # Guarantees visibility on ANY square color.
+                # ── Draw piece ──────────────────────────────────────────
+                # Strategy: draw a thick border ring using 12 radial offsets
+                # then fill on top. No fringing because the SQUARE colors
+                # already contrast with both piece colors.
                 if piece:
                     sym = UNICODE_PIECES.get(piece.symbol(), "?")
-                    font = QFont("Segoe UI Symbol", int(sq_size * 0.54))
+                    # Slightly smaller than square so edges don't clip
+                    fs = max(10, int(sq_size * 0.60))
+                    font = QFont("Segoe UI Symbol", fs)
+                    font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
                     painter.setFont(font)
+
                     if piece.color == chess.WHITE:
-                        fill_color    = QColor("#ffffff")
-                        outline_color = QColor("#111111")
+                        fill_color   = WHITE_PIECE_FILL
+                        border_color = WHITE_PIECE_BORDER
                     else:
-                        fill_color    = QColor("#1a1a1a")
-                        outline_color = QColor("#eeeeee")
-                    # 8-direction outline for crisp contrast
-                    offsets = [(-2,-2),(2,-2),(-2,2),(2,2),(0,-2),(0,2),(-2,0),(2,0)]
-                    painter.setPen(outline_color)
-                    for ox, oy in offsets:
+                        fill_color   = BLACK_PIECE_FILL
+                        border_color = BLACK_PIECE_BORDER
+
+                    # Draw border: 12 evenly-spaced offsets at radius 2.5px
+                    painter.setPen(border_color)
+                    import math
+                    r = 2.5
+                    for i in range(12):
+                        angle = i * math.pi / 6
+                        ox = int(round(r * math.cos(angle)))
+                        oy = int(round(r * math.sin(angle)))
                         painter.drawText(
                             QRect(rect.x()+ox, rect.y()+oy, rect.width(), rect.height()),
                             Qt.AlignmentFlag.AlignCenter, sym)
-                    # Fill colour on top
+
+                    # Draw fill on top
                     painter.setPen(fill_color)
                     painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, sym)
 
-        # Draw rank/file labels
+        # Rank/file labels — colour adapts to square so always readable
         label_font = QFont("Arial", 9, QFont.Weight.Bold)
         painter.setFont(label_font)
         files = "abcdefgh"
         ranks = "12345678"
         for i in range(8):
+            # bottom file labels
             f_idx = i if not self._flipped else 7 - i
-            # File label colour contrasts with the square in the bottom row
-            label_col = QColor("#888") if (i + 0) % 2 == 0 else QColor("#888")
-            painter.setPen(QColor("#888888"))
+            sq_is_light = (f_idx + 0) % 2 == 0  # rank-1 squares
+            painter.setPen(DARK_SQUARE if sq_is_light else LIGHT_SQUARE)
             painter.drawText(
-                QRect(i * sq_size, 7 * sq_size + sq_size - 14, sq_size, 14),
+                QRect(i * sq_size, 7 * sq_size + sq_size - 15, sq_size - 2, 15),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
                 files[f_idx]
             )
+            # left rank labels
             r_idx = 7 - i if not self._flipped else i
+            sq_is_light2 = (0 + r_idx) % 2 == 0
+            painter.setPen(DARK_SQUARE if sq_is_light2 else LIGHT_SQUARE)
             painter.drawText(
                 QRect(2, i * sq_size + 2, 16, 16),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
