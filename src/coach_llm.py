@@ -94,12 +94,9 @@ class OllamaBackend:
             response.raise_for_status()
             return response.json().get("response", "").strip()
         except requests.exceptions.ConnectionError:
-            return (
-                "[Ollama is not running. Start it with `ollama serve` and "
-                f"ensure model '{self.model}' is available via `ollama pull {self.model}`.]"
-            )
+            return None  # signal: use rule-based fallback
         except Exception as e:
-            return f"[LLM Error: {e}]"
+            return None  # signal: use rule-based fallback
 
 
 class OpenAIBackend:
@@ -122,10 +119,66 @@ class OpenAIBackend:
                 max_tokens=max_tokens,
             )
             return response.choices[0].message.content.strip()
-        except ImportError:
-            return "[openai package not installed. Run: pip install openai]"
-        except Exception as e:
-            return f"[OpenAI Error: {e}]"
+        except (ImportError, Exception):
+            return None  # signal: use rule-based fallback
+
+
+
+class RuleBasedFallback:
+    """
+    Always-available coaching summary generated purely from GameReport data.
+    Used when no LLM backend is reachable.
+    """
+
+    @staticmethod
+    def game_summary(report: "GameReport", outcome: str, player_elo: int) -> str:
+        stats = report.summary_stats()
+        acc   = stats["accuracy"]
+        blunders    = stats["blunders"]
+        mistakes    = stats["mistakes"]
+        inaccuracies= stats["inaccuracies"]
+        critical = report.get_critical_moments(top_n=1)
+
+        lines = [
+            f"Game Over: {outcome}",
+            f"",
+            f"Your accuracy this game: {acc}",
+            f"  • Blunders: {blunders}   Mistakes: {mistakes}   Inaccuracies: {inaccuracies}",
+            f"",
+        ]
+
+        if critical:
+            m = critical[0]
+            phase = Analyzer.infer_game_phase(m.fen_before)
+            lines += [
+                f"Most critical moment [{phase}]: {m.move_san} ({m.classification})",
+                f"  Centipawn loss: {abs(m.score_delta):.0f} cp",
+                f"  Engine suggested: {m.best_move_san} instead.",
+                f"",
+            ]
+
+        # General tips based on stats
+        if blunders >= 3:
+            lines.append("📌 Tip: You had several blunders. Before each move, ask — does this leave a piece hanging?")
+        elif mistakes >= 3:
+            lines.append("📌 Tip: A few mistakes cost you. Try to calculate at least 2 moves ahead before committing.")
+        elif float(acc.rstrip('%')) >= 70:
+            lines.append("📌 Well played! Your accuracy was strong. Focus on converting advantages in the endgame.")
+        else:
+            lines.append("📌 Keep practising — consistency comes with time. Review the critical moments above.")
+
+        lines.append("")
+        lines.append("💡 To enable AI coaching, run: ollama pull llama3 && ollama serve")
+        return "\n".join(lines)
+
+    @staticmethod
+    def move_explanation(move: "MoveEvaluation", phase: str) -> str:
+        loss = abs(move.score_delta)
+        return (
+            f"{move.classification} in the {phase}: {move.move_san} "
+            f"(lost ~{loss:.0f} cp). "
+            f"Engine preferred: {move.best_move_san}."
+        )
 
 
 # --------------------------------------------------------------------------
@@ -171,12 +224,18 @@ class ChessCoach:
         """Generate coaching feedback for a single critical move."""
         phase = Analyzer.infer_game_phase(fen)
         prompt = build_move_feedback_prompt(move, game_phase=phase, player_elo=self.player_elo)
-        return self._llm.generate(prompt)
+        result = self._llm.generate(prompt) if self._llm else None
+        if result is None:
+            return RuleBasedFallback.move_explanation(move, phase)
+        return result
 
     def generate_game_summary(self, report: GameReport, outcome: str) -> str:
         """Generate a full post-game coaching summary."""
         prompt = build_game_summary_prompt(report, self.player_elo, outcome)
-        return self._llm.generate(prompt, max_tokens=800)
+        result = self._llm.generate(prompt, max_tokens=800) if self._llm else None
+        if result is None:
+            return RuleBasedFallback.game_summary(report, outcome, self.player_elo)
+        return result
 
     def explain_critical_moments(self, report: GameReport) -> list[dict]:
         """

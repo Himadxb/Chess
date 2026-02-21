@@ -39,10 +39,11 @@ class TestPromptBuilders:
 
 
 class TestOllamaBackend:
-    def test_connection_error_returns_helpful_message(self):
+    def test_connection_error_returns_none(self):
+        """OllamaBackend returns None on failure; ChessCoach handles the fallback."""
         backend = OllamaBackend(host="http://localhost:9999", model="doesnotexist")
         result = backend.generate("test prompt")
-        assert "Ollama is not running" in result or "Error" in result
+        assert result is None  # None signals ChessCoach to use RuleBasedFallback
 
 
 class TestChessCoach:

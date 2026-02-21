@@ -141,21 +141,29 @@ class ChessBoardWidget(QWidget):
                     if piece.color == self.board.turn:
                         painter.fillRect(rect, CHECK_COLOR)
 
-                # Draw piece
+                # Draw piece with high-contrast outlined rendering.
+                # White pieces: bright white fill + dark border.
+                # Black pieces: dark fill + bright white border.
+                # Guarantees visibility on ANY square color.
                 if piece:
                     sym = UNICODE_PIECES.get(piece.symbol(), "?")
-                    font = QFont("Segoe UI Symbol", sq_size // 2)
+                    font = QFont("Segoe UI Symbol", int(sq_size * 0.54))
                     painter.setFont(font)
-                    # White pieces: black text on light squares, white text on dark squares
                     if piece.color == chess.WHITE:
-                        color = QColor("#f5f5f5") if (file + rank) % 2 == 1 else QColor("#1a1a1a")
+                        fill_color    = QColor("#ffffff")
+                        outline_color = QColor("#111111")
                     else:
-                        color = QColor("#1a1a1a") if (file + rank) % 2 == 1 else QColor("#f5f5f5")
-                    # Add subtle drop shadow for readability
-                    painter.setPen(QColor(0, 0, 0, 60))
-                    shadow_rect = QRect(rect.x() + 2, rect.y() + 2, rect.width(), rect.height())
-                    painter.drawText(shadow_rect, Qt.AlignmentFlag.AlignCenter, sym)
-                    painter.setPen(color)
+                        fill_color    = QColor("#1a1a1a")
+                        outline_color = QColor("#eeeeee")
+                    # 8-direction outline for crisp contrast
+                    offsets = [(-2,-2),(2,-2),(-2,2),(2,2),(0,-2),(0,2),(-2,0),(2,0)]
+                    painter.setPen(outline_color)
+                    for ox, oy in offsets:
+                        painter.drawText(
+                            QRect(rect.x()+ox, rect.y()+oy, rect.width(), rect.height()),
+                            Qt.AlignmentFlag.AlignCenter, sym)
+                    # Fill colour on top
+                    painter.setPen(fill_color)
                     painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, sym)
 
         # Draw rank/file labels
