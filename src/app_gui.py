@@ -149,19 +149,28 @@ class ChessBoardWidget(QWidget):
                     if piece.color == self.board.turn:
                         painter.fillRect(rect, CHECK_COLOR)
 
-                # ── Draw piece (solid fill, no border) ─────────────────
-                # Board square colors provide contrast by design.
-                # White on green = visible. Black on cream = visible.
+                # ── Draw piece ──────────────────────────────────────────────
                 if piece:
                     sym = UNICODE_PIECES.get(piece.symbol(), "?")
                     fs = max(10, int(sq_size * 0.62))
                     font = QFont("Segoe UI Symbol", fs)
                     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
                     painter.setFont(font)
-                    # Pure solid fills — no border coloring at all
-                    painter.setPen(WHITE_PIECE_FILL if piece.color == chess.WHITE
-                                   else BLACK_PIECE_FILL)
+
+                    if piece.color == chess.WHITE:
+                        # Dark outline (4 cardinal directions) then white fill on top
+                        painter.setPen(WHITE_PIECE_BORDER)
+                        for ox, oy in ((0,-2),(0,2),(-2,0),(2,0)):
+                            painter.drawText(
+                                QRect(rect.x()+ox, rect.y()+oy, rect.width(), rect.height()),
+                                Qt.AlignmentFlag.AlignCenter, sym)
+                        painter.setPen(WHITE_PIECE_FILL)
+                    else:
+                        # Black pieces: solid dark, no outline needed
+                        painter.setPen(BLACK_PIECE_FILL)
+
                     painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, sym)
+
 
         # Rank/file labels — colour adapts to square so always readable
         label_font = QFont("Arial", 9, QFont.Weight.Bold)
